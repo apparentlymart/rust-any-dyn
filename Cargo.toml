@@ -1,0 +1,9 @@
+[package]
+description = "Trait objects whose trait is tracked at runtime rather than compile time."
+edition = "2024"
+license = "MIT"
+name = "any-dyn"
+repository = "https://github.com/apparentlymart/rust-any-dyn"
+version = "0.1.0"
+
+[dependencies]
