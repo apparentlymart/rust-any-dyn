@@ -7,10 +7,14 @@
 //!
 //! There are various libraries that offer different strategies for
 //! cross-converting between trait objects of different traits. This library
-//! does not actually solve that problem, but it provides a building block that
-//! can be useful when solving that problem: a meeting point where a function
-//! that knows how to produce a trait object and a function that knows which
-//! trait object type it wants can coordinate at runtime.
+//! _does not_ aim to be a batteries-included solution to that problem, but
+//! it does offer a number of building blocks you can use to implement such
+//! facilities for yourself as part of your own application.
+//!
+//! The [`traitcast`] module includes a simple trait-to-trait casting
+//! implementation that you can use directly if you like, but it is mainly
+//! intended as an example of how you might include such facilities as part of
+//! broader abstractions within your own application.
 //!
 //! Because this erases both the concrete target type and the chosen trait type,
 //! it can only work for trait objects for types that are `'static`, similar
@@ -21,23 +25,29 @@
 //!
 //! # WARNING: This relies on Rust implementation details!
 //!
-//! The current form of this trait relies on the unstable `ptr_metadata`
-//! feature, and so can only work on nightly Rust. More importantly, it relies
-//! on an implementation detail that is not actually guaranteed: that the
-//! metadata for trait objects always has the same size and alignment regardless
-//! of which trait is being implemented.
+//! The current implementation of type-erased trait object references relies on
+//! the unstable `ptr_metadata` feature, and so can only work on nightly Rust.
+//! More importantly, it relies on a specific implementation detail that is not
+//! actually guaranteed at the time of writing: that the metadata for trait
+//! objects always has the same size and alignment regardless of which trait is
+//! being implemented.
 //!
 //! If that implementation detail changes in future -- for example, if certain
 //! traits have larger metadata in a future version of Rust -- then this library
 //! will panic at runtime when constructing type-erased trait objects for
-//! certain traits.
+//! certain traits, but it should not cause undefined behavior.
 //!
 //! Note that it depends only on all trait object metadata having the same
-//! size and alignment; it does not depend on any specific representation of
+//! size and alignment; it does _not_ depend on any specific representation of
 //! that metadata. This trait will not be broken if the metadata representation
 //! for _all_ trait object types changes together in a future language version.
 //!
-//! **If that situation bothers you, do not use this library**.
+//! This library will keep using `0.*.*` version numbers at least until
+//! it's not relying on unstable features or implementation details. Due to
+//! relying on unstable and unspecified details, future versions of Rust could
+//! potentially break this library in a way that cannot be repaired.
+//!
+//! **If that situation bothers you, then do not use this library!**
 #![no_std]
 #![feature(ptr_metadata)]
 
@@ -49,8 +59,13 @@ use core::{
     ptr::{DynMetadata, NonNull},
 };
 
+pub mod traitcast;
+
 /// A shared reference to a trait object for an erased trait tracked only at
 /// runtime.
+///
+/// In other words, this is like `&'a dyn Trait`, but with `Trait` tracked
+/// dynamically instead of statically,
 ///
 /// ```
 /// # use any_dyn::AnyDyn;
@@ -100,6 +115,19 @@ impl<'a> AnyDyn<'a> {
         Dyn: core::ptr::Pointee<Metadata = core::ptr::DynMetadata<Dyn>>,
     {
         let ptr = AnyDynPtr::new(NonNull::from(from));
+        // Safety: We're returning with the same lifetime we were given.
+        unsafe { Self::from_raw(ptr) }
+    }
+
+    /// Conjures a an [`AnyDyn`] with an arbitrary lifetime from an
+    /// [`AnyDynPtr`].
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that the resulting lifetime is correct for
+    /// the object behind the given pointer.
+    #[inline]
+    pub const unsafe fn from_raw(ptr: AnyDynPtr) -> Self {
         Self {
             ptr,
             _phantom: PhantomData,
@@ -110,7 +138,7 @@ impl<'a> AnyDyn<'a> {
     /// this [`AnyDyn`] value was constructed from a trait object of the same
     /// type.
     #[inline]
-    pub fn cast<Dyn: ?Sized + 'static>(&'a self) -> Option<&'a Dyn>
+    pub fn cast<Dyn: ?Sized + 'static>(self) -> Option<&'a Dyn>
     where
         Dyn: core::ptr::Pointee<Metadata = core::ptr::DynMetadata<Dyn>>,
     {
@@ -120,6 +148,12 @@ impl<'a> AnyDyn<'a> {
             ptr.as_ref()
         })
     }
+
+    /// Returns the underlying [`AnyDynPtr`] for this trait object reference.
+    #[inline]
+    pub const fn as_ptr(self) -> AnyDynPtr {
+        self.ptr
+    }
 }
 
 /// A mutable reference to a trait object for an erased trait tracked only at
@@ -127,6 +161,9 @@ impl<'a> AnyDyn<'a> {
 ///
 /// This is essentially the same as [`AnyDyn`] except that it represents a
 /// mutable reference instead of a shared reference.
+///
+/// In other words, this is like `&'a mut dyn Trait`, but with `Trait` tracked
+/// dynamically instead of statically,
 #[derive(Debug, Clone, Copy)]
 pub struct AnyDynMut<'a> {
     ptr: AnyDynPtr,
@@ -146,6 +183,19 @@ impl<'a> AnyDynMut<'a> {
         Dyn: core::ptr::Pointee<Metadata = core::ptr::DynMetadata<Dyn>>,
     {
         let ptr = AnyDynPtr::new(NonNull::from(from));
+        // Safety: We're returning with the same lifetime we were given.
+        unsafe { Self::from_raw(ptr) }
+    }
+
+    /// Conjures a an [`AnyDynMut`] with an arbitrary lifetime from an
+    /// [`AnyDynPtr`].
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that the resulting lifetime is correct for
+    /// the object behind the given pointer.
+    #[inline]
+    pub const unsafe fn from_raw(ptr: AnyDynPtr) -> Self {
         Self {
             ptr,
             _phantom: PhantomData,
@@ -156,7 +206,7 @@ impl<'a> AnyDynMut<'a> {
     /// this [`AnyDynMut`] value was constructed from a trait object of the same
     /// type.
     #[inline]
-    pub fn cast<Dyn: ?Sized + 'static>(&'a self) -> Option<&'a mut Dyn>
+    pub fn cast<Dyn: ?Sized + 'static>(self) -> Option<&'a mut Dyn>
     where
         Dyn: core::ptr::Pointee<Metadata = core::ptr::DynMetadata<Dyn>>,
     {
@@ -165,6 +215,12 @@ impl<'a> AnyDynMut<'a> {
             // if the following is safe.
             ptr.as_mut()
         })
+    }
+
+    /// Returns the underlying [`AnyDynPtr`] for this trait object reference.
+    #[inline]
+    pub const fn as_ptr(self) -> AnyDynPtr {
+        self.ptr
     }
 }
 
@@ -176,7 +232,8 @@ impl<'a> AnyDynMut<'a> {
 ///
 /// This is the raw pointer version of [`AnyDyn`] and [`AnyDynMut`], which
 /// therefore does not track any lifetimes. Those other two types are wrappers
-/// around this which follow the lifetime and mutability of the given references.
+/// around this which track the lifetime and mutability of the underlying
+/// object.
 #[derive(Debug, Clone, Copy)]
 pub struct AnyDynPtr {
     thin: NonNull<()>,
@@ -251,5 +308,131 @@ impl AnyDynPtr {
             // null itself.
             NonNull::new_unchecked(ptr)
         })
+    }
+}
+
+/// Unique identifier for a `dyn Trait` trait object type.
+///
+/// This serves the same purpose as (and the similar limitations as)
+/// [`core::any::TypeId`], but provides the additional guarantee that it
+/// can only be safely constructed to represent trait object types and not
+/// any other type.
+///
+/// This is intended for use in a trait-casting handshake protocol involving
+/// a function that takes a `DynTypeId` and returns an optional [`AnyDyn`]
+/// or [`AnyDynMut`] for the requested trait object type. The macro
+/// [`traitcast::match_dyn_type_id`] can help with implementing such a function.
+///
+/// The following example shows a potential application involving polymorphic
+/// "handle" values that can be tested to see if they implement specific traits
+/// at runtime.
+///
+/// ```
+/// # #![feature(ptr_metadata)]
+/// # use any_dyn::{DynTypeId, AnyDyn};
+/// pub trait WithMessage {
+///     fn message(&self) -> &'static str;
+/// }
+///
+///
+/// pub trait WithIndex {
+///     fn index(&self) -> usize;
+/// }
+///
+/// // Represents an opaque handle to something which implements zero or more
+/// // of the other traits.
+/// pub trait Handle {
+///     /// Returns a trait object for the given trait object type, if and only
+///     /// the implementer is able and willing to act as an implementation of
+///     /// that trait.
+///     //
+///     // This uses `DynTypeId` rather than a generic type argument so
+///     // that this trait is dyn-compatible.
+///     fn as_trait_object<'a>(&'a self, type_id: DynTypeId) -> Option<AnyDyn<'a>> {
+///         None // default implementation supports no traits at all
+///     }
+/// }
+///
+/// /// Generic-typed helper for using [`Handle`] more conveniently to
+/// /// attempt to cast an arbitrary handle object into a different trait
+/// /// object.
+/// pub fn cast_handle<'a, Dyn: ?Sized + 'static>(hnd: &'a dyn Handle) -> Option<&'a Dyn>
+/// where
+///    Dyn: core::ptr::Pointee<Metadata = core::ptr::DynMetadata<Dyn>>,
+/// {
+///     let any = hnd.as_trait_object(DynTypeId::of::<Dyn>())?;
+///     any.cast::<Dyn>()
+/// }
+///
+/// struct HelloWorld;
+///
+/// impl WithMessage for HelloWorld {
+///     fn message(&self) -> &'static str {
+///         "Hello, world!"
+///     }
+/// }
+///
+/// impl Handle for HelloWorld {
+///     fn as_trait_object<'a>(&'a self, type_id: DynTypeId) -> Option<AnyDyn<'a>> {
+///         // Each that each type must explicitly enumerate which traits
+///         // it intends to support through this API, so the implementer
+///         // has control of what subset of their implemented traits they
+///         // want to expose through the "Handle" abstraction.
+///         //
+///         // This particular handle type only supports `WithMessage`.
+///         if type_id == DynTypeId::of::<dyn WithMessage>() {
+///             Some(AnyDyn::new(self as &dyn WithMessage))
+///         } else {
+///             None
+///         }
+///
+///         // NOTE: The above is a hand-written implementation just to
+///         // illustrate how these different parts can fit together, but
+///         // the macro `match_dyn_type_id` in the `traitcast` module
+///         // can help generate code like the above automatically.
+///     }
+/// }
+///
+/// fn usage_example() {
+///     let hello_world = HelloWorld;
+///     let hnd: &dyn Handle = &hello_world;
+///     // Imagine that `hnd` had been stashed in an element of hetrogenous
+///     // `Vec<Box<dyn Handle>>`, or similar, and we just looked it up by index
+///     // to serve a dynamic request from outside of the current process that
+///     // needs to return a message, if and only if the handle happens to
+///     // implement that trait...
+///     if let Some(with_message) = cast_handle::<dyn WithMessage>(hnd) {
+///         println!("message is {:?}", with_message.message());
+///     }
+///     /// ...or an index, if it happens to implement that trait...
+///     if let Some(with_index) = cast_handle::<dyn WithIndex>(hnd) {
+///         println!("index is {:?}", with_index.index());
+///     }
+/// }
+/// # usage_example();
+/// ```
+///
+/// If you want to do something like this and are relatively unopinionated
+/// about the details, you might find the symbols in [`traitcast`] useful.
+/// However, these building blocks are intended to allow you to build your
+/// own specialized versions of those helpers, if e.g. you want to include it
+/// as part of a larger abstraction.
+#[repr(transparent)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct DynTypeId {
+    type_id: TypeId,
+}
+
+impl DynTypeId {
+    /// Returns the [`DynTypeId`] of the type parameter `Dyn`, which must be
+    /// a trait object type.
+    #[inline]
+    pub const fn of<Dyn: ?Sized + 'static>() -> Self
+    where
+        Dyn: core::ptr::Pointee<Metadata = core::ptr::DynMetadata<Dyn>>,
+    {
+        Self {
+            type_id: core::any::TypeId::of::<Dyn>(),
+        }
     }
 }
