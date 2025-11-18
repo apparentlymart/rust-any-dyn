@@ -2,7 +2,7 @@
 //!
 //! The main purpose of this library is to provide a types that can be used to
 //! represent trait objects for _any_ dyn-compatible trait, with the decision
-//! of which trait being made at runtime. Refer to the [`AnyDyn`] documentation
+//! of which trait being made at runtime. Refer to the [`Dyn`] documentation
 //! for a usage example.
 //!
 //! There are various libraries that offer different strategies for
@@ -68,7 +68,7 @@ pub mod traitcast;
 /// dynamically instead of statically,
 ///
 /// ```
-/// # use any_dyn::AnyDyn;
+/// # use any_dyn::Dyn;
 /// trait ExampleTrait {
 ///     fn message(&self) -> &'static str;
 /// }
@@ -82,7 +82,7 @@ pub mod traitcast;
 /// }
 ///
 /// let ei = ExampleImpl;
-/// let erased: AnyDyn = AnyDyn::new(&ei as &dyn ExampleTrait);
+/// let erased = Dyn::new(&ei as &dyn ExampleTrait);
 /// // `erased` is now equivalent to a &dyn ExampleTrait value except that
 /// // the trait it implements is also erased, in addition to the normal erasure
 /// // of the underlying implementation type.
@@ -95,39 +95,38 @@ pub mod traitcast;
 /// ```
 ///
 /// This type represents only shared (immutable) references to trait objects.
-/// Consider [`AnyDynMut`] if you need an exclusive mutable reference.
+/// Consider [`DynMut`] if you need an exclusive mutable reference.
 #[derive(Debug, Clone, Copy)]
-pub struct AnyDyn<'a> {
-    ptr: AnyDynPtr,
+pub struct Dyn<'a> {
+    ptr: DynPtr,
     _phantom: PhantomData<&'a ()>,
 }
 
-impl<'a> AnyDyn<'a> {
-    /// Creates an [`AnyDyn`] value that represents the same trait object
+impl<'a> Dyn<'a> {
+    /// Creates a [`Dyn`] value that represents the same trait object
     /// given in `from`, but with the specific trait erased as runtime data
     /// instead of part of the result type.
     ///
-    /// Callers can recover `from` by calling [`AnyDyn::cast`] with the
+    /// Callers can recover `from` by calling [`Dyn::cast`] with the
     /// same trait object type.
     #[inline]
     pub fn new<Dyn: ?Sized + 'static>(from: &'a Dyn) -> Self
     where
         Dyn: core::ptr::Pointee<Metadata = core::ptr::DynMetadata<Dyn>>,
     {
-        let ptr = AnyDynPtr::new(NonNull::from(from));
+        let ptr = DynPtr::new(NonNull::from(from));
         // Safety: We're returning with the same lifetime we were given.
         unsafe { Self::from_raw(ptr) }
     }
 
-    /// Conjures a an [`AnyDyn`] with an arbitrary lifetime from an
-    /// [`AnyDynPtr`].
+    /// Conjures a [`Dyn`] with an arbitrary lifetime from a [`DynPtr`].
     ///
     /// # Safety
     ///
     /// The caller must ensure that the resulting lifetime is correct for
     /// the object behind the given pointer.
     #[inline]
-    pub const unsafe fn from_raw(ptr: AnyDynPtr) -> Self {
+    pub const unsafe fn from_raw(ptr: DynPtr) -> Self {
         Self {
             ptr,
             _phantom: PhantomData,
@@ -135,7 +134,7 @@ impl<'a> AnyDyn<'a> {
     }
 
     /// Cast returns a reference to a trait object of type `Dyn` if and only if
-    /// this [`AnyDyn`] value was constructed from a trait object of the same
+    /// this [`Dyn`] value was constructed from a trait object of the same
     /// type.
     #[inline]
     pub fn cast<Dyn: ?Sized + 'static>(self) -> Option<&'a Dyn>
@@ -143,15 +142,15 @@ impl<'a> AnyDyn<'a> {
         Dyn: core::ptr::Pointee<Metadata = core::ptr::DynMetadata<Dyn>>,
     {
         self.ptr.cast::<Dyn>().map(|ptr| unsafe {
-            // Safety: AnyDynPtr guarantees that it will only return Some
+            // Safety: DynPtr guarantees that it will only return Some
             // if the following is safe.
             ptr.as_ref()
         })
     }
 
-    /// Returns the underlying [`AnyDynPtr`] for this trait object reference.
+    /// Returns the underlying [`DynPtr`] for this trait object reference.
     #[inline]
-    pub const fn as_ptr(self) -> AnyDynPtr {
+    pub const fn as_ptr(self) -> DynPtr {
         self.ptr
     }
 }
@@ -159,43 +158,42 @@ impl<'a> AnyDyn<'a> {
 /// A mutable reference to a trait object for an erased trait tracked only at
 /// runtime.
 ///
-/// This is essentially the same as [`AnyDyn`] except that it represents a
+/// This is essentially the same as [`Dyn`] except that it represents a
 /// mutable reference instead of a shared reference.
 ///
 /// In other words, this is like `&'a mut dyn Trait`, but with `Trait` tracked
 /// dynamically instead of statically,
 #[derive(Debug, Clone, Copy)]
-pub struct AnyDynMut<'a> {
-    ptr: AnyDynPtr,
+pub struct DynMut<'a> {
+    ptr: DynPtr,
     _phantom: PhantomData<&'a mut ()>,
 }
 
-impl<'a> AnyDynMut<'a> {
-    /// Creates an [`AnyDynMut`] value that represents the same trait object
+impl<'a> DynMut<'a> {
+    /// Creates a [`DynMut`] value that represents the same trait object
     /// given in `from`, but with the specific trait erased as runtime data
     /// instead of part of the result type.
     ///
-    /// Callers can recover `from` by calling [`AnyDynMut::cast`] with the
+    /// Callers can recover `from` by calling [`DynMut::cast`] with the
     /// same trait object type.
     #[inline]
     pub fn new<Dyn: ?Sized + 'static>(from: &'a mut Dyn) -> Self
     where
         Dyn: core::ptr::Pointee<Metadata = core::ptr::DynMetadata<Dyn>>,
     {
-        let ptr = AnyDynPtr::new(NonNull::from(from));
+        let ptr = DynPtr::new(NonNull::from(from));
         // Safety: We're returning with the same lifetime we were given.
         unsafe { Self::from_raw(ptr) }
     }
 
-    /// Conjures a an [`AnyDynMut`] with an arbitrary lifetime from an
-    /// [`AnyDynPtr`].
+    /// Conjures a [`DynMut`] with an arbitrary lifetime from a [`DynPtr`].
     ///
     /// # Safety
     ///
     /// The caller must ensure that the resulting lifetime is correct for
     /// the object behind the given pointer.
     #[inline]
-    pub const unsafe fn from_raw(ptr: AnyDynPtr) -> Self {
+    pub const unsafe fn from_raw(ptr: DynPtr) -> Self {
         Self {
             ptr,
             _phantom: PhantomData,
@@ -203,7 +201,7 @@ impl<'a> AnyDynMut<'a> {
     }
 
     /// Cast returns a reference to a trait object of type `Dyn` if and only if
-    /// this [`AnyDynMut`] value was constructed from a trait object of the same
+    /// this [`DynMut`] value was constructed from a trait object of the same
     /// type.
     #[inline]
     pub fn cast<Dyn: ?Sized + 'static>(self) -> Option<&'a mut Dyn>
@@ -211,15 +209,15 @@ impl<'a> AnyDynMut<'a> {
         Dyn: core::ptr::Pointee<Metadata = core::ptr::DynMetadata<Dyn>>,
     {
         self.ptr.cast::<Dyn>().map(|mut ptr| unsafe {
-            // Safety: AnyDynPtr guarantees that it will only return Some
+            // Safety: DynPtr guarantees that it will only return Some
             // if the following is safe.
             ptr.as_mut()
         })
     }
 
-    /// Returns the underlying [`AnyDynPtr`] for this trait object reference.
+    /// Returns the underlying [`DynPtr`] for this trait object reference.
     #[inline]
-    pub const fn as_ptr(self) -> AnyDynPtr {
+    pub const fn as_ptr(self) -> DynPtr {
         self.ptr
     }
 }
@@ -230,23 +228,23 @@ impl<'a> AnyDynMut<'a> {
 /// A value of this type is similar to a `NonNull<dyn Trait>`, but with the
 /// specific trait erased so it can vary at runtime.
 ///
-/// This is the raw pointer version of [`AnyDyn`] and [`AnyDynMut`], which
+/// This is the raw pointer version of [`Dyn`] and [`DynMut`], which
 /// therefore does not track any lifetimes. Those other two types are wrappers
 /// around this which track the lifetime and mutability of the underlying
 /// object.
 #[derive(Debug, Clone, Copy)]
-pub struct AnyDynPtr {
+pub struct DynPtr {
     thin: NonNull<()>,
     metadata: MaybeUninit<DynMetadata<()>>,
     type_id: TypeId,
 }
 
-impl AnyDynPtr {
-    /// Creates an [`AnyDynPtr`] value that represents the same trait object
+impl DynPtr {
+    /// Creates a [`DynPtr`] value that represents the same trait object
     /// given in `from`, but with the specific trait erased as runtime data
     /// instead of part of the result type.
     ///
-    /// Callers can recover `from` by calling [`AnyDynPtr::cast`] with the
+    /// Callers can recover `from` by calling [`DynPtr::cast`] with the
     /// same trait object type.
     pub fn new<Dyn: ?Sized + 'static>(from: NonNull<Dyn>) -> Self
     where
@@ -286,7 +284,7 @@ impl AnyDynPtr {
     }
 
     /// Cast returns a pointer to a trait object of type `Dyn` if and only if
-    /// this [`AnyDynPtr`] value was constructed from a trait object of the same
+    /// this [`DynPtr`] value was constructed from a trait object of the same
     /// type.
     #[inline]
     pub fn cast<Dyn: ?Sized + 'static>(&self) -> Option<NonNull<Dyn>>
@@ -313,14 +311,14 @@ impl AnyDynPtr {
 
 /// Unique identifier for a `dyn Trait` trait object type.
 ///
-/// This serves the same purpose as (and the similar limitations as)
+/// This serves the same purpose as (and has similar limitations as)
 /// [`core::any::TypeId`], but provides the additional guarantee that it
 /// can only be safely constructed to represent trait object types and not
 /// any other type.
 ///
 /// This is intended for use in a trait-casting handshake protocol involving
-/// a function that takes a `DynTypeId` and returns an optional [`AnyDyn`]
-/// or [`AnyDynMut`] for the requested trait object type. The macro
+/// a function that takes a `DynTypeId` and returns an optional [`Dyn`]
+/// or [`DynMut`] for the requested trait object type. The macro
 /// [`traitcast::match_dyn_type_id`] can help with implementing such a function.
 ///
 /// The following example shows a potential application involving polymorphic
@@ -329,7 +327,7 @@ impl AnyDynPtr {
 ///
 /// ```
 /// # #![feature(ptr_metadata)]
-/// # use any_dyn::{DynTypeId, AnyDyn};
+/// # use any_dyn::{DynTypeId, Dyn};
 /// pub trait WithMessage {
 ///     fn message(&self) -> &'static str;
 /// }
@@ -348,7 +346,7 @@ impl AnyDynPtr {
 ///     //
 ///     // This uses `DynTypeId` rather than a generic type argument so
 ///     // that this trait is dyn-compatible.
-///     fn as_trait_object<'a>(&'a self, type_id: DynTypeId) -> Option<AnyDyn<'a>> {
+///     fn as_trait_object<'a>(&'a self, type_id: DynTypeId) -> Option<Dyn<'a>> {
 ///         None // default implementation supports no traits at all
 ///     }
 /// }
@@ -373,7 +371,7 @@ impl AnyDynPtr {
 /// }
 ///
 /// impl Handle for HelloWorld {
-///     fn as_trait_object<'a>(&'a self, type_id: DynTypeId) -> Option<AnyDyn<'a>> {
+///     fn as_trait_object<'a>(&'a self, type_id: DynTypeId) -> Option<Dyn<'a>> {
 ///         // Each that each type must explicitly enumerate which traits
 ///         // it intends to support through this API, so the implementer
 ///         // has control of what subset of their implemented traits they
@@ -381,7 +379,7 @@ impl AnyDynPtr {
 ///         //
 ///         // This particular handle type only supports `WithMessage`.
 ///         if type_id == DynTypeId::of::<dyn WithMessage>() {
-///             Some(AnyDyn::new(self as &dyn WithMessage))
+///             Some(Dyn::new(self as &dyn WithMessage))
 ///         } else {
 ///             None
 ///         }

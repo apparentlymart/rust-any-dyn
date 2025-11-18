@@ -9,7 +9,7 @@
 //!
 //! If you'd like to learn more, start with [`AsTraitObject`].
 
-use crate::{AnyDyn, AnyDynMut, DynTypeId};
+use crate::{Dyn, DynMut, DynTypeId};
 
 /// A `dyn`-compatible trait used by [`cast_trait_object`] to find out whether
 /// an implementer wishes to support casting to a trait object of a different
@@ -37,9 +37,9 @@ pub trait AsTraitObject {
     /// type they are interested in.
     ///
     /// Implementations of this can typically use [`match_dyn_type_id`] to
-    /// perform the appropriate type matching and [`AnyDyn`] construction.
+    /// perform the appropriate type matching and [`Dyn`] construction.
     #[inline]
-    fn as_trait_object<'a>(&'a self, type_id: DynTypeId) -> Option<AnyDyn<'a>> {
+    fn as_trait_object<'a>(&'a self, type_id: DynTypeId) -> Option<Dyn<'a>> {
         let _ = type_id;
         None
     }
@@ -51,7 +51,7 @@ pub trait AsTraitObject {
 ///
 /// ```
 /// # use any_dyn::{
-/// #     AnyDyn,
+/// #     Dyn,
 /// #     DynTypeId,
 /// #     traitcast::{
 /// #         AsTraitObject,
@@ -63,7 +63,7 @@ pub trait AsTraitObject {
 /// # struct SomeStruct {}
 /// # impl SomeTrait for SomeStruct {}
 /// # impl AsTraitObject for SomeStruct {
-/// #     fn as_trait_object<'a>(&'a self, type_id: DynTypeId) -> Option<AnyDyn<'a>> {
+/// #     fn as_trait_object<'a>(&'a self, type_id: DynTypeId) -> Option<Dyn<'a>> {
 /// #         match_dyn_type_id!(self, type_id => SomeTrait)
 /// #     }
 /// # }
@@ -83,9 +83,9 @@ pub trait AsTraitObject {
 ///
 /// Refer to [`AsTraitObject`] for more information. This is really just a
 /// thin wrapper around [`AsTraitObject::as_trait_object`] followed by calling
-/// [`AnyDyn::cast`] on its result, but typically more convenient to use because
+/// [`Dyn::cast`] on its result, but typically more convenient to use because
 /// the trait object type only needs to be written once and the intermediate
-/// [`AnyDyn`] representation is encapsulated.
+/// [`Dyn`] representation is encapsulated.
 #[inline]
 pub fn cast_trait_object<Dyn: ?Sized + 'static>(obj: &dyn AsTraitObject) -> Option<&Dyn>
 where
@@ -102,13 +102,13 @@ macro_rules! __match_dyn_type_id {
         type DynTypeId = $crate::DynTypeId;
         let type_id: $crate::DynTypeId = $type_id;
         let v: &_ = $self;
-        let ret: Option<$crate::AnyDyn> = if false {
+        let ret: Option<$crate::Dyn> = if false {
             _ = type_id;
             None
         }
         $(
         else if $type_id == DynTypeId::of::<dyn $trait_n>() {
-            Some($crate::AnyDyn::new($self as &dyn $trait_n))
+            Some($crate::Dyn::new($self as &dyn $trait_n))
         }
         )+
         else {
@@ -125,13 +125,13 @@ macro_rules! __match_dyn_type_id_mut {
         type DynTypeId = $crate::DynTypeId;
         let type_id: $crate::DynTypeId = $type_id;
         let v: &_ = $self;
-        let ret: Option<$crate::AnyDynMut> = if false {
+        let ret: Option<$crate::DynMut> = if false {
             _ = type_id;
             None
         }
         $(
         else if $type_id == DynTypeId::of::<dyn $trait_n>() {
-            Some($crate::AnyDynMut::new($self as &mut dyn $trait_n))
+            Some($crate::DynMut::new($self as &mut dyn $trait_n))
         }
         )+
         else {
@@ -141,7 +141,7 @@ macro_rules! __match_dyn_type_id_mut {
     }};
 }
 
-/// Helper for implementing lookups from [`DynTypeId`] to [`AnyDyn`] for
+/// Helper for implementing lookups from [`DynTypeId`] to [`Dyn`] for
 /// a specified set of traits.
 ///
 /// Implementations of [`AsTraitObject::as_trait_object`], or of any similar
@@ -150,7 +150,7 @@ macro_rules! __match_dyn_type_id_mut {
 ///
 /// ```
 /// use any_dyn::traitcast::{AsTraitObject, match_dyn_type_id};
-/// use any_dyn::{AnyDyn, DynTypeId};
+/// use any_dyn::{Dyn, DynTypeId};
 ///
 /// trait SomeTrait { /* ... */ }
 /// trait SomeOtherTrait { /* ... */ }
@@ -160,8 +160,8 @@ macro_rules! __match_dyn_type_id_mut {
 /// impl SomeOtherTrait for SomeStruct { /* ... */ }
 ///
 /// impl AsTraitObject for SomeStruct {
-///     fn as_trait_object<'a>(&'a self, type_id: DynTypeId) -> Option<AnyDyn<'a>> {
-///         // The macro expands to an expression that returns Option<AnyDyn>.
+///     fn as_trait_object<'a>(&'a self, type_id: DynTypeId) -> Option<Dyn<'a>> {
+///         // The macro expands to an expression that returns Option<Dyn>.
 ///         match_dyn_type_id!(self, type_id => SomeTrait, SomeOtherTrait)
 ///     }
 /// }
@@ -177,18 +177,18 @@ macro_rules! __match_dyn_type_id_mut {
 /// to something functionally equivalent to the following:
 ///
 /// ```
-/// # use any_dyn::{AnyDyn, DynTypeId};
+/// # use any_dyn::{Dyn, DynTypeId};
 /// # trait SomeTrait {}
 /// # trait SomeOtherTrait {}
 /// # struct SomeStruct {}
 /// # impl SomeTrait for SomeStruct {}
 /// # impl SomeOtherTrait for SomeStruct {}
 /// # impl SomeStruct {
-/// # fn example<'a>(&'a self, type_id: DynTypeId) -> Option<AnyDyn<'a>> {
+/// # fn example<'a>(&'a self, type_id: DynTypeId) -> Option<Dyn<'a>> {
 /// if type_id == DynTypeId::of::<dyn SomeTrait>() {
-///     Some(AnyDyn::new(self as &dyn SomeTrait))
+///     Some(Dyn::new(self as &dyn SomeTrait))
 /// } else if type_id == DynTypeId::of::<dyn SomeOtherTrait>() {
-///     Some(AnyDyn::new(self as &dyn SomeOtherTrait))
+///     Some(Dyn::new(self as &dyn SomeOtherTrait))
 /// } else {
 ///     None
 /// }
@@ -202,32 +202,32 @@ macro_rules! __match_dyn_type_id_mut {
 #[doc(inline)]
 pub use __match_dyn_type_id as match_dyn_type_id;
 
-/// Helper for implementing lookups from [`DynTypeId`] to [`AnyDynMut`] for
+/// Helper for implementing lookups from [`DynTypeId`] to [`DynMut`] for
 /// a specified set of traits.
 ///
 /// This is just like [`match_dyn_type_id`] except that it produces
-/// [`AnyDynMut`] results instead of [`AnyDyn`], and must therefore be used
+/// [`DynMut`] results instead of [`Dyn`], and must therefore be used
 /// with a mutable reference to something that implements each of the listed
 /// traits.
 ///
 /// ```
 /// # use any_dyn::traitcast::match_dyn_type_id_mut;
-/// # use any_dyn::{AnyDynMut, DynTypeId};
+/// # use any_dyn::{DynMut, DynTypeId};
 /// # trait SomeTrait { /* ... */ }
 /// # trait SomeOtherTrait { /* ... */ }
 /// # struct SomeStruct { /* ... */ }
 /// # impl SomeTrait for SomeStruct { /* ... */ }
 /// # impl SomeOtherTrait for SomeStruct { /* ... */ }
 /// # trait AsTraitObjectMut {
-/// #   fn as_trait_object_mut<'a>(&'a mut self, type_id: DynTypeId) -> Option<AnyDynMut<'a>>;
+/// #   fn as_trait_object_mut<'a>(&'a mut self, type_id: DynTypeId) -> Option<DynMut<'a>>;
 /// # }
 /// // (AsTraitObjectMut is not a real trait in this library: it's just an
 /// // example of a hypothetical mutable-trait-object trait you could
 /// // specify yourself if you need something like it, and then implement it
 /// // with the help of this macro.)
 /// impl AsTraitObjectMut for SomeStruct {
-///     fn as_trait_object_mut<'a>(&'a mut self, type_id: DynTypeId) -> Option<AnyDynMut<'a>> {
-///         // The macro expands to an expression that returns Option<AnyDynMut>.
+///     fn as_trait_object_mut<'a>(&'a mut self, type_id: DynTypeId) -> Option<DynMut<'a>> {
+///         // The macro expands to an expression that returns Option<DynMut>.
 ///         match_dyn_type_id_mut!(self, type_id => SomeTrait, SomeOtherTrait)
 ///     }
 /// }
@@ -244,4 +244,4 @@ pub use __match_dyn_type_id as match_dyn_type_id;
 pub use __match_dyn_type_id_mut as match_dyn_type_id_mut;
 
 #[expect(unused)]
-type AnyDynMutUsed<'a> = AnyDynMut<'a>;
+type DynMutUsed<'a> = DynMut<'a>;
