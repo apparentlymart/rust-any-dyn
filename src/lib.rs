@@ -56,7 +56,7 @@ use core::{
     any::TypeId,
     marker::PhantomData,
     mem::MaybeUninit,
-    ptr::{DynMetadata, NonNull},
+    ptr::{DynMetadata, NonNull, Pointee},
 };
 
 pub mod traitcast;
@@ -110,10 +110,7 @@ impl<'a> Dyn<'a> {
     /// Callers can recover `from` by calling [`Dyn::cast`] with the
     /// same trait object type.
     #[inline]
-    pub fn new<Dyn: ?Sized + 'static>(from: &'a Dyn) -> Self
-    where
-        Dyn: core::ptr::Pointee<Metadata = core::ptr::DynMetadata<Dyn>>,
-    {
+    pub fn new<Dyn: TraitObject + ?Sized + 'static>(from: &'a Dyn) -> Self {
         let ptr = DynPtr::new(NonNull::from(from));
         // Safety: We're returning with the same lifetime we were given.
         unsafe { Self::from_raw(ptr) }
@@ -137,10 +134,7 @@ impl<'a> Dyn<'a> {
     /// this [`Dyn`] value was constructed from a trait object of the same
     /// type.
     #[inline]
-    pub fn cast<Dyn: ?Sized + 'static>(self) -> Option<&'a Dyn>
-    where
-        Dyn: core::ptr::Pointee<Metadata = core::ptr::DynMetadata<Dyn>>,
-    {
+    pub fn cast<Dyn: TraitObject + ?Sized + 'static>(self) -> Option<&'a Dyn> {
         self.ptr.cast::<Dyn>().map(|ptr| unsafe {
             // Safety: DynPtr guarantees that it will only return Some
             // if the following is safe.
@@ -177,10 +171,7 @@ impl<'a> DynMut<'a> {
     /// Callers can recover `from` by calling [`DynMut::cast`] with the
     /// same trait object type.
     #[inline]
-    pub fn new<Dyn: ?Sized + 'static>(from: &'a mut Dyn) -> Self
-    where
-        Dyn: core::ptr::Pointee<Metadata = core::ptr::DynMetadata<Dyn>>,
-    {
+    pub fn new<Dyn: TraitObject + ?Sized + 'static>(from: &'a mut Dyn) -> Self {
         let ptr = DynPtr::new(NonNull::from(from));
         // Safety: We're returning with the same lifetime we were given.
         unsafe { Self::from_raw(ptr) }
@@ -204,10 +195,7 @@ impl<'a> DynMut<'a> {
     /// this [`DynMut`] value was constructed from a trait object of the same
     /// type.
     #[inline]
-    pub fn cast<Dyn: ?Sized + 'static>(self) -> Option<&'a mut Dyn>
-    where
-        Dyn: core::ptr::Pointee<Metadata = core::ptr::DynMetadata<Dyn>>,
-    {
+    pub fn cast<Dyn: TraitObject + ?Sized + 'static>(self) -> Option<&'a mut Dyn> {
         self.ptr.cast::<Dyn>().map(|mut ptr| unsafe {
             // Safety: DynPtr guarantees that it will only return Some
             // if the following is safe.
@@ -246,10 +234,7 @@ impl DynPtr {
     ///
     /// Callers can recover `from` by calling [`DynPtr::cast`] with the
     /// same trait object type.
-    pub fn new<Dyn: ?Sized + 'static>(from: NonNull<Dyn>) -> Self
-    where
-        Dyn: core::ptr::Pointee<Metadata = core::ptr::DynMetadata<Dyn>>,
-    {
+    pub fn new<Dyn: TraitObject + ?Sized + 'static>(from: NonNull<Dyn>) -> Self {
         // The following is to make it more likely that we'll notice quickly
         // if the implementation detail we're relying on changes in a future
         // version of Rust. Note that we're only depending on equal layout and
@@ -271,7 +256,8 @@ impl DynPtr {
         // again before we actually try to make use of it.
         let mut erased_metadata = MaybeUninit::<DynMetadata<()>>::uninit();
         let erased_metadata_ptr = erased_metadata.as_mut_ptr();
-        let our_metadata_erased = &metadata as *const DynMetadata<Dyn> as *const DynMetadata<()>;
+        let our_metadata_erased =
+            &metadata as *const <Dyn as Pointee>::Metadata as *const DynMetadata<()>;
         unsafe {
             core::ptr::copy_nonoverlapping(our_metadata_erased, erased_metadata_ptr, 1);
         }
@@ -287,14 +273,11 @@ impl DynPtr {
     /// this [`DynPtr`] value was constructed from a trait object of the same
     /// type.
     #[inline]
-    pub fn cast<Dyn: ?Sized + 'static>(&self) -> Option<NonNull<Dyn>>
-    where
-        Dyn: core::ptr::Pointee<Metadata = core::ptr::DynMetadata<Dyn>>,
-    {
+    pub fn cast<Dyn: TraitObject + ?Sized + 'static>(&self) -> Option<NonNull<Dyn>> {
         if core::any::TypeId::of::<Dyn>() != self.type_id {
             return None;
         }
-        let metadata_ptr = self.metadata.as_ptr() as *const core::ptr::DynMetadata<Dyn>;
+        let metadata_ptr = self.metadata.as_ptr() as *const <Dyn as Pointee>::Metadata;
         let metadata = unsafe {
             // Safety: If this object was constructed correctly then our
             // erased metadata is for the requested trait object type.
@@ -425,12 +408,55 @@ impl DynTypeId {
     /// Returns the [`DynTypeId`] of the type parameter `Dyn`, which must be
     /// a trait object type.
     #[inline]
-    pub const fn of<Dyn: ?Sized + 'static>() -> Self
-    where
-        Dyn: core::ptr::Pointee<Metadata = core::ptr::DynMetadata<Dyn>>,
-    {
+    pub const fn of<Dyn: TraitObject + ?Sized + 'static>() -> Self {
         Self {
             type_id: core::any::TypeId::of::<Dyn>(),
         }
+    }
+}
+
+/// A trait that's implemented by all trait object types, and no other types.
+///
+/// This is for writing functions that are generic over all types of trait
+/// objects but without erasing the specific trait.
+///
+/// If you need to support trait objects whose traits are decided at runtime
+/// instead, use [`DynTypeId`] to identify a trait object type and [`Dyn`] or
+/// [`DynMut`] to represent a trait object reference.
+///
+/// Generic functions with a type parameter that has a `TraitObject` bound
+/// will typically also need to include `?Sized` in that bound, because
+/// implementations of this type are always dynamically-sized. A lifetime
+/// bound of `'static` is also required if the type will be used for
+/// type-erased identity and values using [`DynTypeId`], [`Dyn`], [`DynMut`],
+/// etc.
+///
+/// # Safety:
+///
+/// This trait has a blanket implementation across all trait object types,
+/// which is the only implementation allowed. No implementations outside of
+/// this crate are allowed.
+pub unsafe trait TraitObject:
+    core::ptr::Pointee<Metadata = core::ptr::DynMetadata<Self>>
+{
+    /// Returns the [`DynTypeId`] representing the runtime identity value for
+    /// this trait object type.
+    fn type_id() -> DynTypeId
+    where
+        Self: 'static;
+}
+
+/// Blanket implementation of [`TraitObject`] for a trait object type of
+/// any `dyn`-compatible trait.
+unsafe impl<Dyn: ?Sized> TraitObject for Dyn
+where
+    Dyn: core::ptr::Pointee<Metadata = core::ptr::DynMetadata<Dyn>>,
+{
+    #[inline(always)]
+    fn type_id() -> DynTypeId
+    where
+        Self: 'static,
+    {
+        DynTypeId::of::<Self>()
     }
 }

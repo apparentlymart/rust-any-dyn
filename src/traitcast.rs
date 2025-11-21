@@ -9,7 +9,7 @@
 //!
 //! If you'd like to learn more, start with [`AsTraitObject`].
 
-use crate::{Dyn, DynMut, DynTypeId};
+use crate::{Dyn, DynMut, DynTypeId, TraitObject};
 
 /// A `dyn`-compatible trait used by [`cast_trait_object`] to find out whether
 /// an implementer wishes to support casting to a trait object of a different
@@ -87,10 +87,9 @@ pub trait AsTraitObject {
 /// the trait object type only needs to be written once and the intermediate
 /// [`Dyn`] representation is encapsulated.
 #[inline]
-pub fn cast_trait_object<Dyn: ?Sized + 'static>(obj: &dyn AsTraitObject) -> Option<&Dyn>
-where
-    Dyn: core::ptr::Pointee<Metadata = core::ptr::DynMetadata<Dyn>>,
-{
+pub fn cast_trait_object<Dyn: TraitObject + ?Sized + 'static>(
+    obj: &dyn AsTraitObject,
+) -> Option<&Dyn> {
     let any = obj.as_trait_object(DynTypeId::of::<Dyn>())?;
     any.cast::<Dyn>()
 }
@@ -99,16 +98,16 @@ where
 #[macro_export]
 macro_rules! __match_dyn_type_id {
     ($self:expr, $type_id:expr => $($trait_n:path),+ ) => {{
-        type DynTypeId = $crate::DynTypeId;
-        let type_id: $crate::DynTypeId = $type_id;
+        use $crate::{DynTypeId, Dyn};
+        let type_id: DynTypeId = $type_id;
         let v: &_ = $self;
-        let ret: Option<$crate::Dyn> = if false {
+        let ret: Option<Dyn> = if false {
             _ = type_id;
             None
         }
         $(
         else if $type_id == DynTypeId::of::<dyn $trait_n>() {
-            Some($crate::Dyn::new($self as &dyn $trait_n))
+            Some(Dyn::new($self as &dyn $trait_n))
         }
         )+
         else {
@@ -122,16 +121,16 @@ macro_rules! __match_dyn_type_id {
 #[macro_export]
 macro_rules! __match_dyn_type_id_mut {
     ($self:expr, $type_id:expr => $($trait_n:path),+ ) => {{
-        type DynTypeId = $crate::DynTypeId;
-        let type_id: $crate::DynTypeId = $type_id;
+        use $crate::{DynTypeId, DynMut};
+        let type_id: DynTypeId = $type_id;
         let v: &_ = $self;
-        let ret: Option<$crate::DynMut> = if false {
+        let ret: Option<DynMut> = if false {
             _ = type_id;
             None
         }
         $(
         else if $type_id == DynTypeId::of::<dyn $trait_n>() {
-            Some($crate::DynMut::new($self as &mut dyn $trait_n))
+            Some(DynMut::new($self as &mut dyn $trait_n))
         }
         )+
         else {
