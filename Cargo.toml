@@ -4,6 +4,6 @@ edition = "2024"
 license = "MIT"
 name = "any-dyn"
 repository = "https://github.com/apparentlymart/rust-any-dyn"
-version = "0.3.0"
+version = "0.3.1"
 
 [dependencies]
