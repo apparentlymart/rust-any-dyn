@@ -100,13 +100,13 @@ macro_rules! __match_dyn_type_id {
     ($self:expr, $type_id:expr => $($trait_n:path),+ ) => {{
         use $crate::{DynTypeId, Dyn};
         let type_id: DynTypeId = $type_id;
-        let v: &_ = $self;
+        let _: &_ = $self;
         let ret: Option<Dyn> = if false {
             _ = type_id;
             None
         }
         $(
-        else if $type_id == DynTypeId::of::<dyn $trait_n>() {
+        else if type_id == DynTypeId::of::<dyn $trait_n>() {
             Some(Dyn::new($self as &dyn $trait_n))
         }
         )+
@@ -123,13 +123,13 @@ macro_rules! __match_dyn_type_id_mut {
     ($self:expr, $type_id:expr => $($trait_n:path),+ ) => {{
         use $crate::{DynTypeId, DynMut};
         let type_id: DynTypeId = $type_id;
-        let v: &_ = $self;
+        let _: &_ = $self;
         let ret: Option<DynMut> = if false {
             _ = type_id;
             None
         }
         $(
-        else if $type_id == DynTypeId::of::<dyn $trait_n>() {
+        else if type_id == DynTypeId::of::<dyn $trait_n>() {
             Some(DynMut::new($self as &mut dyn $trait_n))
         }
         )+

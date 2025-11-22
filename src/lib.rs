@@ -460,3 +460,6 @@ where
         DynTypeId::of::<Self>()
     }
 }
+
+#[cfg(test)]
+mod tests;
